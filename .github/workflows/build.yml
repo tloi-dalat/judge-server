@@ -86,6 +86,13 @@ jobs:
           "$PYTHON" -m pip install cython coverage
           "$PYTHON" -m pip install -e .[test]
           chmod o+w .
+
+          ARCH=$([ $(uname -m) = "x86_64" ] && echo "amd64" || echo "arm64")
+          curl --location -o scratch-run.zip $(curl -s https://api.github.com/repos/VNOI-Admin/scratch-run/releases/latest | grep -o -m 1 "https://github\.com.*.*linux_$ARCH\.zip")
+          unzip scratch-run.zip
+          mv scratch-run /usr/bin/scratch-run
+          rm scratch-run.zip
+
           runuser -u judge -w PATH /code/run-su
           EOF
 
