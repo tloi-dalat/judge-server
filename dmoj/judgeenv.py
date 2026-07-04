@@ -221,7 +221,9 @@ def load_env(cli: bool = False, testsuite: bool = False) -> None:  # pragma: no 
             all_problem_globs.extend(globs)
 
         if not all_problem_globs:
-            raise SystemExit('no problems available to grade')
+            startup_warnings.append(
+                'no problems configured; this judge will only serve custom invocations'
+            )
 
         problem_globs = storage_namespaces[None]
         problem_watches = problem_globs

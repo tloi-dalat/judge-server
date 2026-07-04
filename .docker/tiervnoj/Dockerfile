@@ -1,6 +1,7 @@
 FROM vnoj/runtimes-tier1
 
 ARG TAG=master
+ARG REPO=VNOI-Admin/judge-server
 
 RUN apt-get update && \
 	apt-get install -y --no-install-recommends openjdk-25-jdk-headless openjdk-25-jre-headless golang unzip jq && \
@@ -39,7 +40,7 @@ RUN ARCH=$([ $(uname -m) = "x86_64" ] && echo "amd64" || echo "arm64") && \
 ENV PATH="/opt/kotlin/bin:/opt/pypy2/bin:/opt/pypy3/bin:/home/judge/.cargo/bin:${PATH}"
 
 RUN mkdir /judge /problems && cd /judge && \
-	curl -L https://github.com/VNOI-Admin/judge-server/archive/"${TAG}".tar.gz | tar -xz --strip-components=1 && \
+	curl -L https://github.com/"${REPO}"/archive/"${TAG}".tar.gz | tar -xz --strip-components=1 && \
 	python3 -m venv --prompt=DMOJ /env && \
 	/env/bin/pip3 install cython setuptools && \
 	/env/bin/pip3 install -e . && \

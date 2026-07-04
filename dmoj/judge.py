@@ -159,6 +159,44 @@ class Judge:
         if blocking:
             grading_thread.join()
 
+    def run_custom_invocation(self, invocation, report=logger.info) -> None:
+        self.packet_manager.custom_invocation_begin_packet(invocation.id)
+        thread = threading.Thread(
+            target=self._custom_invocation_thread_main, args=(invocation, report), daemon=True
+        )
+        thread.start()
+
+    def _custom_invocation_thread_main(self, invocation, report) -> None:
+        from dmoj.custom_invocation import run_custom_invocation
+
+        with self._grading_lock:
+            report(ansi_style('Start custom invocation #ansi[%s](green|bold) in %s...'
+                              % (invocation.id, invocation.language)))
+            try:
+                result = run_custom_invocation(invocation)
+            except CompileError as compile_error:
+                report(ansi_style('#ansi[Custom invocation failed to compile.](red|bold)'))
+                self.packet_manager.custom_invocation_error_packet(
+                    invocation.id, compile_error.message, compile_error=True
+                )
+                return
+            except Exception:
+                self.log_internal_error()
+                self.packet_manager.custom_invocation_error_packet(
+                    invocation.id, traceback.format_exc(), compile_error=False
+                )
+                return
+
+            self.packet_manager.custom_invocation_end_packet(
+                invocation.id,
+                result.stdout,
+                result.stderr,
+                result.execution_time,
+                result.max_memory,
+                result.compile_output,
+            )
+            report(ansi_style('Done custom invocation #ansi[%s](green|bold).\n' % invocation.id))
+
     def _grading_thread_main(self, ipc_ready_signal: threading.Event, report) -> None:
         assert self.current_judge_worker is not None
 
