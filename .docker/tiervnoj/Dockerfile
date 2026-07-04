@@ -1,7 +1,7 @@
 FROM vnoj/runtimes-tier1
 
 ARG TAG=master
-ARG REPO=VNOI-Admin/judge-server
+ARG REPO=tloi-dalat/judge-server
 
 RUN apt-get update && \
 	apt-get install -y --no-install-recommends openjdk-25-jdk-headless openjdk-25-jre-headless golang unzip jq && \
