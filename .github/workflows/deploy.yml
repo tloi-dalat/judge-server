@@ -1,0 +1,42 @@
+name: deploy
+on:
+  workflow_run:
+    workflows: [docker]
+    types: [completed]
+    branches: [main]
+  push:
+    branches:
+      - release
+
+jobs:
+  deploy2qa:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: qa
+    steps:
+      - name: Run QA update script via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.QA_VPS_HOST }}
+          username: ${{ secrets.QA_VPS_USER }}
+          key: ${{ secrets.QA_VPS_SSH_KEY }}
+          port: ${{ secrets.QA_VPS_PORT }}
+          script_stop: true
+          script: |
+            /home/tloi/update_judge.sh
+
+  deploy2prod:
+    if: github.event_name == 'push' && github.ref_name == 'release'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - name: Run PROD update script via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script_stop: true
+          script: |
+            /home/tloi/update_judge.sh

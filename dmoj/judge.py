@@ -161,17 +161,18 @@ class Judge:
 
     def run_custom_invocation(self, invocation, report=logger.info) -> None:
         self.packet_manager.custom_invocation_begin_packet(invocation.id)
-        thread = threading.Thread(
-            target=self._custom_invocation_thread_main, args=(invocation, report), daemon=True
-        )
+        thread = threading.Thread(target=self._custom_invocation_thread_main, args=(invocation, report), daemon=True)
         thread.start()
 
     def _custom_invocation_thread_main(self, invocation, report) -> None:
         from dmoj.custom_invocation import run_custom_invocation
 
         with self._grading_lock:
-            report(ansi_style('Start custom invocation #ansi[%s](green|bold) in %s...'
-                              % (invocation.id, invocation.language)))
+            report(
+                ansi_style(
+                    'Start custom invocation #ansi[%s](green|bold) in %s...' % (invocation.id, invocation.language)
+                )
+            )
             try:
                 result = run_custom_invocation(invocation)
             except CompileError as compile_error:
