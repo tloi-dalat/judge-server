@@ -1,4 +1,4 @@
-GIT_TAG ?= master
+GIT_TAG ?= main
 TAG ?= latest
 NAMESPACE ?= tloj
 
