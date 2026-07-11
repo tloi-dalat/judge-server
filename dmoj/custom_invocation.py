@@ -1,10 +1,11 @@
 import logging
 import subprocess
+import traceback
 from typing import NamedTuple, Optional
 
 from dmoj.config import ConfigNode
 from dmoj.cptbox.utils import MemoryIO
-from dmoj.error import OutputLimitExceeded
+from dmoj.error import CompileError, OutputLimitExceeded
 from dmoj.executors import executors
 from dmoj.utils.unicode import utf8bytes, utf8text
 
@@ -31,7 +32,6 @@ CustomInvocation = NamedTuple(
 class CustomInvocationResult:
     def __init__(self) -> None:
         self.stdout: bytes = b''
-        self.stderr: bytes = b''
         self.compile_output: str = ''
         self.execution_time: Optional[float] = None
         self.max_memory: Optional[int] = None
@@ -66,9 +66,9 @@ def run_custom_invocation(invocation: CustomInvocation) -> CustomInvocationResul
             wall_time=invocation.time_limit * 3,
         )
         try:
-            stdout, stderr = proc.communicate(None, outlimit=OUTPUT_LIMIT, errlimit=OUTPUT_LIMIT)
+            stdout, _ = proc.communicate(None, outlimit=OUTPUT_LIMIT, errlimit=OUTPUT_LIMIT)
         except OutputLimitExceeded:
-            stdout, stderr = b'', b'[output limit exceeded]'
+            stdout = b'[output limit exceeded]'
             proc.kill()
         finally:
             proc.wait()
@@ -76,17 +76,22 @@ def run_custom_invocation(invocation: CustomInvocation) -> CustomInvocationResul
         input_io.close()
 
     result.stdout = stdout
-    result.stderr = stderr
     result.execution_time = proc.execution_time
     result.max_memory = proc.max_memory
 
-    notes = []
-    if proc.is_tle:
-        notes.append('[time limit exceeded]')
-    if proc.is_mle:
-        notes.append('[memory limit exceeded]')
-    if notes:
-        suffix = ('\n' if result.stderr else '') + '\n'.join(notes)
-        result.stderr = result.stderr + utf8bytes(suffix)
-
     return result
+
+
+def custom_invocation_subprocess_main(invocation: CustomInvocation, conn) -> None:
+    try:
+        try:
+            result = run_custom_invocation(invocation)
+        except CompileError as compile_error:
+            conn.send(('compile-error', compile_error.message))
+            return
+        except Exception:
+            conn.send(('internal-error', traceback.format_exc()))
+            return
+        conn.send(('done', result))
+    finally:
+        conn.close()

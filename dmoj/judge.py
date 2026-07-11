@@ -72,11 +72,26 @@ Submission = NamedTuple(
 )
 
 
+class _CustomInvocationHandle:
+    __slots__ = ('invocation', 'process', 'conn', 'abort_requested')
+
+    def __init__(
+        self, invocation, process: 'multiprocessing.Process', conn: 'multiprocessing.connection.Connection'
+    ) -> None:
+        self.invocation = invocation
+        self.process = process
+        self.conn = conn
+        self.abort_requested = False
+
+
 class Judge:
     def __init__(self, packet_manager: packet.PacketManager) -> None:
         self.packet_manager = packet_manager
         self.current_judge_worker: Optional[JudgeWorker] = None
         self._grading_lock = threading.Lock()
+
+        self._custom_lock = threading.Lock()
+        self._current_custom: Optional[_CustomInvocationHandle] = None
 
         self.updater_exit = False
         self.updater_signal = threading.Event()
@@ -160,43 +175,124 @@ class Judge:
             grading_thread.join()
 
     def run_custom_invocation(self, invocation, report=logger.info) -> None:
+        with self._custom_lock:
+            if self._current_custom is not None:
+                logger.warning(
+                    'Rejecting custom invocation %s: already running %s',
+                    invocation.id,
+                    self._current_custom.invocation.id,
+                )
+                self.packet_manager.custom_invocation_error_packet(
+                    invocation.id, 'This judge is already busy.', compile_error=False
+                )
+                return
+
         self.packet_manager.custom_invocation_begin_packet(invocation.id)
-        thread = threading.Thread(target=self._custom_invocation_thread_main, args=(invocation, report), daemon=True)
+        report(
+            ansi_style('Start custom invocation #ansi[%s](green|bold) in %s...' % (invocation.id, invocation.language))
+        )
+
+        from dmoj.custom_invocation import custom_invocation_subprocess_main
+
+        parent_conn, child_conn = multiprocessing.Pipe(duplex=False)
+        process = multiprocessing.Process(
+            name='DMOJ Custom Invocation %s' % invocation.id,
+            target=custom_invocation_subprocess_main,
+            args=(invocation, child_conn),
+            daemon=True,
+        )
+        process.start()
+        child_conn.close()
+
+        with self._custom_lock:
+            self._current_custom = _CustomInvocationHandle(invocation, process, parent_conn)
+
+        thread = threading.Thread(target=self._custom_invocation_watch, args=(report,), daemon=True)
         thread.start()
 
-    def _custom_invocation_thread_main(self, invocation, report) -> None:
-        from dmoj.custom_invocation import run_custom_invocation
+    def _custom_invocation_watch(self, report) -> None:
+        with self._custom_lock:
+            handle = self._current_custom
+        invocation = handle.invocation
+        process, conn = handle.process, handle.conn
 
-        with self._grading_lock:
-            report(
-                ansi_style(
-                    'Start custom invocation #ansi[%s](green|bold) in %s...' % (invocation.id, invocation.language)
+        recv_timeout = max(60, int(4 * invocation.time_limit))
+        outcome = None
+        hung = False
+        try:
+            if not conn.poll(timeout=recv_timeout):
+                logger.error(
+                    'Custom invocation %s did not report back in %ds, assuming stuck and killing.',
+                    invocation.id,
+                    recv_timeout,
                 )
-            )
-            try:
-                result = run_custom_invocation(invocation)
-            except CompileError as compile_error:
-                report(ansi_style('#ansi[Custom invocation failed to compile.](red|bold)'))
-                self.packet_manager.custom_invocation_error_packet(
-                    invocation.id, compile_error.message, compile_error=True
-                )
-                return
-            except Exception:
-                self.log_internal_error()
-                self.packet_manager.custom_invocation_error_packet(
-                    invocation.id, traceback.format_exc(), compile_error=False
-                )
-                return
+                hung = True
+                process.kill()
+            else:
+                outcome = conn.recv()
+        except EOFError:
+            pass
+        except Exception:
+            self.log_internal_error(message='Failed to read result from custom invocation %s' % invocation.id)
+        finally:
+            conn.close()
+            process.join(timeout=IPC_TIMEOUT)
+            if process.is_alive():
+                logger.error('Custom invocation %s worker still alive, sending SIGKILL!', invocation.id)
+                process.kill()
+                process.join(timeout=IPC_TIMEOUT)
+            with self._custom_lock:
+                abort_requested = handle.abort_requested
+                self._current_custom = None
 
+        if outcome is None:
+            if abort_requested:
+                report(ansi_style('#ansi[Custom invocation #%s aborted.](red|bold)' % invocation.id))
+                self.packet_manager.custom_invocation_terminated_packet(invocation.id)
+            elif hung:
+                message = 'This run did not respond in time and was terminated by the judge.'
+                self.packet_manager.custom_invocation_error_packet(invocation.id, message, compile_error=False)
+            else:
+                message = 'The judge worker for this run exited unexpectedly.'
+                self.packet_manager.custom_invocation_error_packet(invocation.id, message, compile_error=False)
+            return
+
+        kind, payload = outcome
+        if kind == 'compile-error':
+            report(ansi_style('#ansi[Custom invocation failed to compile.](red|bold)'))
+            self.packet_manager.custom_invocation_error_packet(invocation.id, payload, compile_error=True)
+        elif kind == 'internal-error':
+            self.log_internal_error(message=payload)
+            self.packet_manager.custom_invocation_error_packet(invocation.id, payload, compile_error=False)
+        else:
+            assert kind == 'done'
+            result = payload
             self.packet_manager.custom_invocation_end_packet(
                 invocation.id,
                 result.stdout,
-                result.stderr,
                 result.execution_time,
                 result.max_memory,
                 result.compile_output,
             )
             report(ansi_style('Done custom invocation #ansi[%s](green|bold).\n' % invocation.id))
+
+    def abort_custom_invocation(self, invocation_id: str) -> None:
+        with self._custom_lock:
+            handle = self._current_custom
+            if handle is None or handle.invocation.id != invocation_id:
+                logger.info(
+                    'Received custom invocation abort request for %s, but it is not currently running',
+                    invocation_id,
+                )
+                return
+            logger.info('Received custom invocation abort request for %s', invocation_id)
+            handle.abort_requested = True
+            process = handle.process
+
+        try:
+            process.kill()
+        except Exception:
+            logger.exception('Failed to kill custom invocation %s', invocation_id)
 
     def _grading_thread_main(self, ipc_ready_signal: threading.Event, report) -> None:
         assert self.current_judge_worker is not None
@@ -328,6 +424,10 @@ class Judge:
         End any submission currently executing, and exit the judge.
         """
         self.abort_grading()
+        with self._custom_lock:
+            current = self._current_custom
+        if current is not None:
+            self.abort_custom_invocation(current.invocation.id)
         self.updater_exit = True
         self.updater_signal.set()
         if self.packet_manager:

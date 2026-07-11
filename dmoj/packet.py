@@ -297,6 +297,8 @@ class PacketManager:
             log.info('Accept custom invocation: %s: executor: %s', packet['invocation-id'], packet['language'])
         elif name == 'terminate-submission':
             self.judge.abort_grading()
+        elif name == 'terminate-custom-invocation':
+            self.judge.abort_custom_invocation(packet['invocation-id'])
         elif name == 'disconnect':
             log.info('Received disconnect request, shutting down...')
             self.disconnect()
@@ -417,7 +419,7 @@ class PacketManager:
         )
 
     def custom_invocation_end_packet(
-        self, invocation_id: str, stdout: bytes, stderr: bytes, execution_time, max_memory, compile_output: str
+        self, invocation_id: str, stdout: bytes, execution_time, max_memory, compile_output: str
     ):
         log.debug('Custom invocation end: %s', invocation_id)
         self.fallback = 4
@@ -426,9 +428,13 @@ class PacketManager:
                 'name': 'custom-invocation-end',
                 'invocation-id': invocation_id,
                 'stdout': stdout,
-                'stderr': stderr,
                 'compile-output': compile_output,
                 'time': execution_time,
                 'memory': max_memory,
             }
         )
+
+    def custom_invocation_terminated_packet(self, invocation_id: str):
+        log.debug('Custom invocation terminated: %s', invocation_id)
+        self.fallback = 4
+        self._send_packet({'name': 'custom-invocation-terminated', 'invocation-id': invocation_id})
