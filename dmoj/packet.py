@@ -304,7 +304,7 @@ class PacketManager:
             log.error('Unknown packet %s, payload %s', name, packet)
 
     def handshake(self, problems: str, runtimes, id: str, key: str):
-        role = 'ide' if env.get('role') == 'ide' else 'submission'
+        role = 'custom-invocation' if env.get('role') == 'custom-invocation' else 'submission'
         self._send_packet(
             {'name': 'handshake', 'problems': problems, 'executors': runtimes, 'id': id, 'key': key, 'role': role}
         )
