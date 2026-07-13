@@ -1,13 +1,15 @@
 import logging
+import os
 import subprocess
 import traceback
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 from dmoj.config import ConfigNode
 from dmoj.cptbox.utils import MemoryIO
 from dmoj.error import CompileError, OutputLimitExceeded
 from dmoj.executors import executors
-from dmoj.utils.unicode import utf8bytes, utf8text
+from dmoj.result import Result
+from dmoj.utils.unicode import utf8bytes
 
 log = logging.getLogger(__name__)
 
@@ -29,32 +31,24 @@ CustomInvocation = NamedTuple(
 )
 
 
-class CustomInvocationResult:
-    def __init__(self) -> None:
-        self.stdout: bytes = b''
-        self.compile_output: str = ''
-        self.execution_time: Optional[float] = None
-        self.max_memory: Optional[int] = None
-
-
-def run_custom_invocation(invocation: CustomInvocation) -> CustomInvocationResult:
+def run_custom_invocation(invocation: CustomInvocation) -> Result:
     if invocation.language not in executors:
         raise KeyError('unknown executor: %s' % invocation.language)
 
-    result = CustomInvocationResult()
-
     executor = executors[invocation.language].Executor('_custom_invocation', utf8bytes(invocation.source))
-    result.compile_output = utf8text(getattr(executor, 'warning', None) or b'', 'replace')
 
     input_io = MemoryIO(prefill=utf8bytes(invocation.input or ''), seal=True)
 
     file_io_config = {}
-    if invocation.input_file:
-        file_io_config['input'] = invocation.input_file
-    if invocation.output_file:
-        file_io_config['output'] = invocation.output_file
+    for key, name in (('input', invocation.input_file), ('output', invocation.output_file)):
+        if name:
+            if os.path.basename(name) != name or name.startswith('.'):
+                raise ValueError('unsafe %s file name: %r' % (key, name))
+            file_io_config[key] = name
     file_io = ConfigNode(file_io_config) if file_io_config else None
 
+    result = Result(None)  # type: ignore[arg-type]
+    error = b''
     try:
         proc = executor.launch(
             time=invocation.time_limit,
@@ -66,19 +60,15 @@ def run_custom_invocation(invocation: CustomInvocation) -> CustomInvocationResul
             wall_time=invocation.time_limit * 3,
         )
         try:
-            stdout, _ = proc.communicate(None, outlimit=OUTPUT_LIMIT, errlimit=OUTPUT_LIMIT)
+            result.proc_output, error = proc.communicate(None, outlimit=OUTPUT_LIMIT, errlimit=OUTPUT_LIMIT)
         except OutputLimitExceeded:
-            stdout = b'[output limit exceeded]'
             proc.kill()
         finally:
             proc.wait()
     finally:
         input_io.close()
 
-    result.stdout = stdout
-    result.execution_time = proc.execution_time
-    result.max_memory = proc.max_memory
-
+    executor.populate_result(error, result, proc)
     return result
 
 
