@@ -76,7 +76,10 @@ class _CustomInvocationHandle:
     __slots__ = ('invocation', 'process', 'conn', 'abort_requested')
 
     def __init__(
-        self, invocation, process: 'multiprocessing.Process', conn: 'multiprocessing.connection.Connection'
+        self,
+        invocation,
+        process: 'multiprocessing.process.BaseProcess',
+        conn: 'multiprocessing.connection.Connection',
     ) -> None:
         self.invocation = invocation
         self.process = process
@@ -214,6 +217,8 @@ class Judge:
     def _custom_invocation_watch(self, report) -> None:
         with self._custom_lock:
             handle = self._current_custom
+        # Only this thread ever clears _current_custom, so it is still set here.
+        assert handle is not None
         invocation = handle.invocation
         process, conn = handle.process, handle.conn
 
