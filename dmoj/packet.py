@@ -13,8 +13,9 @@ import zlib
 from typing import List, Optional, TYPE_CHECKING, Tuple
 
 from dmoj import sysinfo
-from dmoj.judgeenv import env, get_runtime_versions, get_supported_problems_and_mtimes
+from dmoj.judgeenv import get_runtime_versions, get_supported_problems_and_mtimes
 from dmoj.result import Result
+from dmoj.utils.ansi import strip_ansi
 from dmoj.utils.unicode import utf8bytes, utf8text
 
 if TYPE_CHECKING:
@@ -306,10 +307,7 @@ class PacketManager:
             log.error('Unknown packet %s, payload %s', name, packet)
 
     def handshake(self, problems: str, runtimes, id: str, key: str):
-        role = 'custom-invocation' if env.get('role') == 'custom-invocation' else 'submission'
-        self._send_packet(
-            {'name': 'handshake', 'problems': problems, 'executors': runtimes, 'id': id, 'key': key, 'role': role}
-        )
+        self._send_packet({'name': 'handshake', 'problems': problems, 'executors': runtimes, 'id': id, 'key': key})
         log.info('Awaiting handshake response: [%s]:%s', self.host, self.port)
         try:
             data = self.input.read(PacketManager.SIZE_PACK.size)
@@ -414,23 +412,22 @@ class PacketManager:
                 'name': 'custom-invocation-error',
                 'invocation-id': invocation_id,
                 'compile-error': compile_error,
-                'log': log_message,
+                'log': strip_ansi(log_message),
             }
         )
 
-    def custom_invocation_end_packet(
-        self, invocation_id: str, stdout: bytes, execution_time, max_memory, compile_output: str
-    ):
+    def custom_invocation_end_packet(self, invocation_id: str, result: Result):
         log.debug('Custom invocation end: %s', invocation_id)
         self.fallback = 4
         self._send_packet(
             {
                 'name': 'custom-invocation-end',
                 'invocation-id': invocation_id,
-                'stdout': stdout,
-                'compile-output': compile_output,
-                'time': execution_time,
-                'memory': max_memory,
+                'stdout': result.proc_output,
+                'status': result.result_flag,
+                'feedback': result.feedback,
+                'time': result.execution_time,
+                'memory': result.max_memory,
             }
         )
 

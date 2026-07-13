@@ -194,8 +194,9 @@ class Judge:
 
         from dmoj.custom_invocation import custom_invocation_subprocess_main
 
-        parent_conn, child_conn = multiprocessing.Pipe(duplex=False)
-        process = multiprocessing.Process(
+        ctx = multiprocessing.get_context('fork')
+        parent_conn, child_conn = ctx.Pipe(duplex=False)
+        process = ctx.Process(
             name='DMOJ Custom Invocation %s' % invocation.id,
             target=custom_invocation_subprocess_main,
             args=(invocation, child_conn),
@@ -233,7 +234,9 @@ class Judge:
         except EOFError:
             pass
         except Exception:
-            self.log_internal_error(message='Failed to read result from custom invocation %s' % invocation.id)
+            self.log_internal_error(
+                message='Failed to read result from custom invocation %s' % invocation.id, submission_error=False
+            )
         finally:
             conn.close()
             process.join(timeout=IPC_TIMEOUT)
@@ -262,18 +265,11 @@ class Judge:
             report(ansi_style('#ansi[Custom invocation failed to compile.](red|bold)'))
             self.packet_manager.custom_invocation_error_packet(invocation.id, payload, compile_error=True)
         elif kind == 'internal-error':
-            self.log_internal_error(message=payload)
+            self.log_internal_error(message=payload, submission_error=False)
             self.packet_manager.custom_invocation_error_packet(invocation.id, payload, compile_error=False)
         else:
             assert kind == 'done'
-            result = payload
-            self.packet_manager.custom_invocation_end_packet(
-                invocation.id,
-                result.stdout,
-                result.execution_time,
-                result.max_memory,
-                result.compile_output,
-            )
+            self.packet_manager.custom_invocation_end_packet(invocation.id, payload)
             report(ansi_style('Done custom invocation #ansi[%s](green|bold).\n' % invocation.id))
 
     def abort_custom_invocation(self, invocation_id: str) -> None:
@@ -433,7 +429,9 @@ class Judge:
         if self.packet_manager:
             self.packet_manager.close()
 
-    def log_internal_error(self, exc: Optional[BaseException] = None, message: Optional[str] = None) -> None:
+    def log_internal_error(
+        self, exc: Optional[BaseException] = None, message: Optional[str] = None, submission_error: bool = True
+    ) -> None:
         if not message:
             # If exc exists, raise it so that sys.exc_info() is populated with its data.
             if exc:
@@ -448,6 +446,9 @@ class Judge:
             message = ''.join(traceback.format_exception(*sys.exc_info()))
 
         logger.error(message)
+
+        if not submission_error:
+            return
 
         try:
             # Strip ANSI from the message, since this might be a checker's CompileError ...we don't want to see the raw
