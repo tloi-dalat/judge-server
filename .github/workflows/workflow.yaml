@@ -1,0 +1,41 @@
+name: 'workflow'
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: workflow-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  judge:
+    permissions:
+      contents: read
+      packages: write
+    uses: tloi-dalat/reusable-workflow/.github/workflows/build-push.yaml@main
+    with:
+      image: oj-judge
+      context: .docker/tiervnoj
+      dockerfile: .docker/tiervnoj/Dockerfile
+      platforms: ${{ github.event_name == 'pull_request' && '["linux/amd64"]' || '["linux/amd64","linux/arm64"]' }}
+      build-args: |
+        REPO=${{ github.repository }}
+        TAG=${{ github.event.pull_request.head.sha || github.sha }}
+      push: ${{ github.event_name != 'pull_request' }}
+
+  deploy-dev:
+    if: github.event_name != 'pull_request'
+    needs: [judge]
+    permissions:
+      contents: read
+    uses: tloi-dalat/reusable-workflow/.github/workflows/dispatch.yaml@main
+    with:
+      apps: judge
+      namespace: online-judge
+      environment: dev
+      version: ${{ needs.judge.outputs.version }}
+    secrets:
+      CONTROL_PLANE_TOKEN: ${{ secrets.CONTROL_PLANE_TOKEN }}

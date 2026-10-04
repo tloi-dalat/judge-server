@@ -1,5 +1,6 @@
 FROM vnoj/runtimes-tier1
 
+ARG REPO=VNOI-Admin/judge-server
 ARG TAG=master
 
 RUN apt-get update && \
@@ -13,8 +14,11 @@ RUN ARCH=$([ $(uname -m) = "x86_64" ] && echo "amd64" || echo "arm64") && \
 		mv scratch-run /usr/bin/scratch-run && \
 		rm scratch-run.zip && \
 	if [ "$(arch)" = x86_64 ]; then PYPY_ARCH=linux64; else PYPY_ARCH="$(arch)"; fi && \
-	mkdir /opt/pypy2 && curl -L "$(curl https://pypy.org/download.html | grep "/pypy2.*$PYPY_ARCH" | head -n1 | cut -d'"' -f4)" | \
-		tar xj -C /opt/pypy2 --strip-components=1 && /opt/pypy2/bin/pypy -mcompileall && \
+	PYPY_URL="$(curl -fsSL https://pypy.org/download.html | grep -o "https://[^\"]*/pypy2[^\"]*-$PYPY_ARCH\.tar\.[a-z0-9]*" | head -n1)" && \
+		echo "PyPy2: $PYPY_URL" && test -n "$PYPY_URL" && \
+		curl -fsSL -o pypy2.tar "$PYPY_URL" && \
+		mkdir /opt/pypy2 && tar -xf pypy2.tar -C /opt/pypy2 --strip-components=1 && rm pypy2.tar && \
+		/opt/pypy2/bin/pypy -mcompileall && \
 		chmod a+rx /opt/pypy2/lib /opt/pypy2/lib/*.so* && \
 		rm -f /opt/pypy2/bin/python* && \
 	curl -L -okotlin.zip "$(curl -s https://api.github.com/repos/JetBrains/kotlin/releases | \
@@ -36,7 +40,7 @@ RUN ARCH=$([ $(uname -m) = "x86_64" ] && echo "amd64" || echo "arm64") && \
 ENV PATH="/opt/kotlin/bin:/opt/pypy2/bin:/home/judge/.cargo/bin:${PATH}"
 
 RUN mkdir /judge /problems && cd /judge && \
-	curl -L https://github.com/VNOI-Admin/judge-server/archive/"${TAG}".tar.gz | tar -xz --strip-components=1 && \
+	curl -L https://github.com/"${REPO}"/archive/"${TAG}".tar.gz | tar -xz --strip-components=1 && \
 	python3 -m venv --prompt=DMOJ /env && \
 	/env/bin/pip3 install cython setuptools && \
 	/env/bin/pip3 install -e . && \
