@@ -35,7 +35,7 @@ jobs:
     with:
       apps: judge
       namespace: online-judge
-      environment: dev
+      environment: development
       version: ${{ needs.judge.outputs.version }}
     secrets:
       CONTROL_PLANE_TOKEN: ${{ secrets.CONTROL_PLANE_TOKEN }}
