@@ -39,7 +39,9 @@ RUN ARCH=$([ $(uname -m) = "x86_64" ] && echo "amd64" || echo "arm64") && \
 
 ENV PATH="/opt/kotlin/bin:/opt/pypy2/bin:/home/judge/.cargo/bin:${PATH}"
 
-RUN mkdir /judge /problems && cd /judge && \
+ARG TARGETARCH
+RUN export DMOJ_TARGET_ARCH="$([ "$TARGETARCH" = arm64 ] && echo armv8-a || echo x86-64)" && \
+	mkdir /judge /problems && cd /judge && \
 	curl -L https://github.com/"${REPO}"/archive/"${TAG}".tar.gz | tar -xz --strip-components=1 && \
 	python3 -m venv --prompt=DMOJ /env && \
 	/env/bin/pip3 install cython setuptools && \
