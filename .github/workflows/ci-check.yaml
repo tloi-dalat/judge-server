@@ -1,0 +1,39 @@
+name: 'check'
+on:
+  pull_request:
+    branches: [main, release, 'releases/**']
+  schedule:
+    - cron: '17 2 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: checks-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  workflows:
+    name: check-workflows
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    uses: tloi-dalat/reusable-workflow/.github/workflows/workflow-lint.yaml@main
+
+  docker:
+    name: check-docker
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    uses: tloi-dalat/reusable-workflow/.github/workflows/docker-build-check.yaml@main
+    with:
+      images: >-
+        [{"image": "oj-judge", "dockerfile": ".docker/tiervnoj/Dockerfile", "context": ".docker/tiervnoj",
+          "build-args": "REPO=${{ github.event.pull_request.head.repo.full_name }}\nTAG=${{ github.event.pull_request.head.sha }}"}]
+
+  dependencies:
+    name: check-dependencies
+    permissions:
+      contents: read
+    uses: tloi-dalat/reusable-workflow/.github/workflows/python-audit.yaml@main
+    with:
+      python-version: '3.12'
+      requirements: requirements.txt
