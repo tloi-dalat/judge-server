@@ -1,0 +1,56 @@
+FROM vnoj/runtimes-tier1
+
+ARG REPO=VNOI-Admin/judge-server
+ARG TAG=master
+
+RUN apt-get update && \
+	apt-get install -y --no-install-recommends openjdk-25-jdk-headless openjdk-25-jre-headless golang unzip jq && \
+	rm -rf /var/lib/apt/lists/*
+
+# Install scratch-run + pypy + kotlin + rust
+RUN ARCH=$([ $(uname -m) = "x86_64" ] && echo "amd64" || echo "arm64") && \
+	curl --location -o scratch-run.zip $(curl -s https://api.github.com/repos/VNOI-Admin/scratch-run/releases/latest | grep -o -m 1 "https://github\.com.*.*linux_$ARCH\.zip") && \
+		unzip scratch-run.zip && \
+		mv scratch-run /usr/bin/scratch-run && \
+		rm scratch-run.zip && \
+	if [ "$(arch)" = x86_64 ]; then PYPY_ARCH=linux64; else PYPY_ARCH="$(arch)"; fi && \
+	PYPY_URL="$(curl -fsSL https://pypy.org/download.html | grep -o "https://[^\"]*/pypy2[^\"]*-$PYPY_ARCH\.tar\.[a-z0-9]*" | head -n1)" && \
+		echo "PyPy2: $PYPY_URL" && test -n "$PYPY_URL" && \
+		curl -fsSL -o pypy2.tar "$PYPY_URL" && \
+		mkdir /opt/pypy2 && tar -xf pypy2.tar -C /opt/pypy2 --strip-components=1 && rm pypy2.tar && \
+		/opt/pypy2/bin/pypy -mcompileall && \
+		chmod a+rx /opt/pypy2/lib /opt/pypy2/lib/*.so* && \
+		rm -f /opt/pypy2/bin/python* && \
+	curl -L -okotlin.zip "$(curl -s https://api.github.com/repos/JetBrains/kotlin/releases | \
+		jq -r '[.[] | select(.prerelease | not) | .assets | flatten | .[] | select((.name | startswith("kotlin-compiler")) and (.name | endswith(".zip"))) | .browser_download_url][0]')" && \
+		unzip kotlin.zip && mv kotlinc /opt/kotlin && rm kotlin.zip && \
+	runuser judge -c 'curl https://sh.rustup.rs -sSf | sh -s -- -y' && \
+		mkdir rust && ( \
+			cd rust && \
+			curl -sL https://raw.githubusercontent.com/DMOJ/judge/master/dmoj/executors/RUST.py | \
+				sed '/^CARGO_TOML/,/^"""/!d;//d' > Cargo.toml && \
+			mkdir src && \
+			curl -sL https://raw.githubusercontent.com/DMOJ/judge/master/dmoj/executors/RUST.py | \
+				sed '/^TEST_PROGRAM/,/^"""/!d;//d' > src/main.rs && \
+			chown -R judge: . && \
+			runuser -u judge /home/judge/.cargo/bin/cargo fetch \
+		) && \
+		rm -rf rust
+
+ENV PATH="/opt/kotlin/bin:/opt/pypy2/bin:/home/judge/.cargo/bin:${PATH}"
+
+ARG TARGETARCH
+RUN export DMOJ_TARGET_ARCH="$([ "$TARGETARCH" = arm64 ] && echo armv8-a || echo x86-64)" && \
+	mkdir /judge /problems && cd /judge && \
+	curl -L https://github.com/"${REPO}"/archive/"${TAG}".tar.gz | tar -xz --strip-components=1 && \
+	python3 -m venv --prompt=DMOJ /env && \
+	/env/bin/pip3 install cython setuptools && \
+	/env/bin/pip3 install -e . && \
+	/env/bin/python3 setup.py develop && \
+	HOME=~judge . ~judge/.profile && \
+	runuser -u judge -w PATH -- /env/bin/dmoj-autoconf -V > /judge-runtime-paths.yml && \
+	echo '  crt_x86_in_lib32: true' >> /judge-runtime-paths.yml && \
+	mkdir -p /usr/lib/fpc/ && cp /judge/asset/Windows.pas /usr/lib/fpc/ && fpc -Fe/dev/stderr -O2 /usr/lib/fpc/Windows.pas && \
+	/judge/.docker/download_testlib_and_precompile
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/judge/.docker/entry"]

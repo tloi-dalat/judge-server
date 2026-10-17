@@ -1,0 +1,53 @@
+name: 'workflow'
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: workflow-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  judge:
+    permissions:
+      contents: read
+      packages: write
+    uses: tloi-dalat/reusable-workflow/.github/workflows/build-push.yaml@main
+    with:
+      image: oj-judge
+      context: .docker/tiervnoj
+      dockerfile: .docker/tiervnoj/Dockerfile
+      platforms: ${{ github.event_name == 'pull_request' && '["linux/amd64"]' || '["linux/amd64","linux/arm64"]' }}
+      build-args: |
+        REPO=${{ github.repository }}
+        TAG=${{ github.event.pull_request.head.sha || github.sha }}
+      push: ${{ github.event_name != 'pull_request' }}
+
+  deploy-dev:
+    if: github.ref == 'refs/heads/main'
+    needs: [judge]
+    permissions:
+      contents: read
+    uses: tloi-dalat/reusable-workflow/.github/workflows/dispatch.yaml@main
+    with:
+      apps: judge
+      namespace: online-judge
+      environment: development
+      version: ${{ needs.judge.outputs.version }}
+    secrets: inherit
+
+  production-values:
+    if: github.ref_type == 'tag'
+    needs: [judge]
+    permissions:
+      contents: write
+    uses: tloi-dalat/reusable-workflow/.github/workflows/production-values.yaml@main
+    with:
+      apps: judge
+      images: oj-judge
+      namespace: online-judge
+      version: ${{ needs.judge.outputs.version }}
