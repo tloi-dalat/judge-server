@@ -16,7 +16,7 @@ jobs:
       packages: write
     uses: tloi-dalat/reusable-workflow/.github/workflows/build-push.yaml@main
     with:
-      image: oj-judge
+      image: online-judge-judge
       context: .docker/tiervnoj
       dockerfile: .docker/tiervnoj/Dockerfile
       platforms: '["linux/amd64","linux/arm64"]'
@@ -46,6 +46,6 @@ jobs:
     uses: tloi-dalat/reusable-workflow/.github/workflows/production-values.yaml@main
     with:
       apps: judge
-      images: oj-judge
+      images: online-judge-judge
       namespace: online-judge
       version: ${{ needs.judge.outputs.version }}

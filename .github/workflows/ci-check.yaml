@@ -26,7 +26,7 @@ jobs:
     uses: tloi-dalat/reusable-workflow/.github/workflows/docker-build-check.yaml@main
     with:
       images: >-
-        [{"image": "oj-judge", "dockerfile": ".docker/tiervnoj/Dockerfile", "context": ".docker/tiervnoj",
+        [{"image": "online-judge-judge", "dockerfile": ".docker/tiervnoj/Dockerfile", "context": ".docker/tiervnoj",
           "build-args": "REPO=${{ github.event.pull_request.head.repo.full_name }}\nTAG=${{ github.event.pull_request.head.sha }}"}]
 
   dependencies:
