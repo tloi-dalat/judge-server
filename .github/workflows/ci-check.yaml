@@ -11,6 +11,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  flake8:
+    name: check-flake8
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    uses: tloi-dalat/reusable-workflow/.github/workflows/flake8-check.yaml@main
+    with:
+      python-version: '3.14'
+      packages: 'black==26.3 flake8==7.3 flake8-logging flake8-import-order flake8-quotes flake8-black'
+
+  clang-format:
+    name: check-clang-format
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    uses: tloi-dalat/reusable-workflow/.github/workflows/clang-format-check.yaml@main
+    with:
+      version: '12.0.1'
+      files: ':(glob)dmoj/**/*.c :(glob)dmoj/**/*.cpp :(glob)dmoj/**/*.h :(exclude,glob)**/_cptbox.cpp'
+
+  mypy:
+    name: check-mypy
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    uses: tloi-dalat/reusable-workflow/.github/workflows/mypy-check.yaml@main
+    with:
+      python-version: '3.14'
+      packages: 'cython mypy types-termcolor types-requests types-PyYAML'
+      paths: dmoj
+
+  sdist:
+    name: check-sdist
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    uses: tloi-dalat/reusable-workflow/.github/workflows/sdist-check.yaml@main
+    with:
+      python-version: '3.14'
+      apt-packages: libseccomp-dev
+      smoke: dmoj-autoconf
+
   workflows:
     name: check-workflows
     if: github.event_name == 'pull_request'
