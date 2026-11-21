@@ -257,7 +257,7 @@ class Problem:
             return self._resolve_testcases(pretest_test_cases)
 
         test_cases = self._resolve_testcases(self.config.test_cases)
-        if pretest_test_cases:
+        if pretest_test_cases and not self.config.pretests_in_test_cases:
             pretest_test_cases = self._resolve_testcases(pretest_test_cases)
 
             # Hack: force short-circuiting behavior
